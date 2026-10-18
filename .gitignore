@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+.venv/
+# 本地产出与密钥（llm.key、上传视频、任务帧/结果）
+data/

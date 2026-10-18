@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>录屏分析 · Screen Recap</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #0f1420; color: #e8eaf0; min-height: 100vh; padding: 24px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  h1 .tag { font-size: 12px; font-weight: normal; color: #8a93a8; margin-left: 10px; }
+  .sub { color: #8a93a8; font-size: 13px; margin-bottom: 20px; }
+  .panel {
+    background: #171e30; border: 1px solid #252e48; border-radius: 14px;
+    padding: 18px 20px; margin-bottom: 18px;
+  }
+  .drop {
+    border: 2px dashed #2c3757; border-radius: 12px; padding: 42px 20px;
+    text-align: center; color: #8a93a8; cursor: pointer; transition: border-color .2s;
+  }
+  .drop.over { border-color: #d4a94e; color: #f0d9a8; }
+  .drop strong { color: #e8eaf0; display: block; font-size: 16px; margin-bottom: 6px; }
+  .row-flex { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+  select {
+    background: #0f1420; border: 1px solid #2c3757; color: #e8eaf0;
+    border-radius: 8px; padding: 7px 12px; font-size: 13px; outline: none;
+  }
+  button {
+    background: linear-gradient(135deg, #d4a94e, #b8862e); color: #1a1408; border: none;
+    border-radius: 8px; padding: 9px 22px; font-size: 14px; font-weight: 700;
+    cursor: pointer; transition: filter .2s;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .bar { height: 8px; background: #0f1420; border-radius: 999px; overflow: hidden; margin-top: 12px; }
+  .bar i { display: block; height: 100%; width: 0; border-radius: 999px;
+    background: linear-gradient(90deg, #d4a94e, #f0d9a8); transition: width .4s; }
+  .step { color: #f0d9a8; font-size: 13px; margin-top: 8px; }
+  .err { color: #f08a8a; font-size: 13px; margin-top: 8px; white-space: pre-wrap; }
+  .topic { font-size: 20px; font-weight: 700; color: #f0d9a8; margin-bottom: 8px; }
+  .summary { color: #c6cde0; line-height: 1.8; font-size: 14px; }
+  .kw { display: inline-block; background: #26304e; color: #9db4f0; border-radius: 999px;
+    padding: 2px 12px; font-size: 12px; margin: 4px 6px 0 0; }
+  ul.points { margin: 10px 0 0 18px; color: #c6cde0; line-height: 1.9; font-size: 14px; }
+  .chapters { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+  .chapters td { padding: 6px 8px; border-bottom: 1px solid #232c46; }
+  .chapters td.t { color: #f0d9a8; font-variant-numeric: tabular-nums; white-space: nowrap; width: 70px; }
+  .frames { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-top: 12px; }
+  .frame { background: #101828; border: 1px solid #232c46; border-radius: 10px; overflow: hidden; }
+  .frame img { width: 100%; display: block; cursor: zoom-in; }
+  .frame .meta { padding: 8px 10px; font-size: 12px; color: #8a93a8; }
+  .frame .meta .ts { color: #f0d9a8; font-weight: 700; }
+  .frame .ocr { margin-top: 4px; color: #aab3c8; max-height: 54px; overflow: hidden; }
+  details { margin-top: 10px; }
+  summary { cursor: pointer; color: #9db4f0; font-size: 13px; }
+  .transcript { white-space: pre-wrap; color: #aab3c8; font-size: 13px; line-height: 1.8;
+    margin-top: 8px; max-height: 320px; overflow: auto; background: #101828;
+    border-radius: 8px; padding: 12px; }
+  .muted { color: #8a93a8; font-size: 12px; }
+  .zoom { position: fixed; inset: 0; background: rgba(0,0,0,.85); display: none;
+    align-items: center; justify-content: center; z-index: 99; cursor: zoom-out; }
+  .zoom img { max-width: 94vw; max-height: 94vh; border-radius: 8px; }
+  h2.sec { font-size: 15px; margin: 0 0 6px; color: #f0d9a8; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎬 录屏分析 <span class="tag" id="llmTag">检测中…</span></h1>
+  <p class="sub">本地 whisper 提取对话 · 场景切换智能截帧 · 本地 OCR 读屏上文字 · 只把文字发给 LLM 出总结（不分析视频本身，省 token）。</p>
+
+  <div class="panel">
+    <div class="drop" id="drop">
+      <strong>点击选择或拖入录屏视频</strong>
+      mp4 / mkv / mov / avi / webm，最大 <span id="upLimit">…</span>MB
+    </div>
+    <input type="file" id="file" accept="video/*" style="display:none">
+    <div class="row-flex">
+      <span class="muted">语言：</span>
+      <select id="lang">
+        <option value="auto">自动识别</option>
+        <option value="zh">中文</option>
+        <option value="en">英文</option>
+      </select>
+      <button id="goBtn" disabled>🚀 开始分析</button>
+      <span class="muted" id="fileInfo"></span>
+    </div>
+    <div class="bar" id="barWrap" style="display:none"><i id="bar"></i></div>
+    <div class="step" id="step"></div>
+    <div class="err" id="err"></div>
+  </div>
+
+  <div id="result" style="display:none">
+    <div class="panel" id="analysisPanel">
+      <h2 class="sec">🧠 AI 分析</h2>
+      <div class="topic" id="topic"></div>
+      <div class="summary" id="summary"></div>
+      <div id="keywords"></div>
+      <ul class="points" id="points"></ul>
+      <div id="chapterWrap" style="display:none">
+        <h2 class="sec" style="margin-top:14px">📑 章节脉络</h2>
+        <table class="chapters"><tbody id="chapters"></tbody></table>
+      </div>
+      <div class="err" id="anaErr"></div>
+    </div>
+
+    <div class="panel">
+      <h2 class="sec">🖼️ 关键帧（<span id="frameCount"></span>）</h2>
+      <div class="frames" id="frames"></div>
+    </div>
+
+    <div class="panel">
+      <h2 class="sec">💬 对话转写</h2>
+      <div class="muted" id="sttMeta"></div>
+      <details><summary>展开全文</summary><div class="transcript" id="transcript"></div></details>
+    </div>
+  </div>
+</div>
+<div class="zoom" id="zoom"><img id="zoomImg"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let picked = null, polling = null;
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+fetch('/api/health').then(r => r.json()).then(d => {
+  $('llmTag').textContent = d.llm_configured ? 'AI 总结已就绪' : '未配 LLM key · 仅本地分析';
+  if (d.max_upload_mb) $('upLimit').textContent = d.max_upload_mb;
+});
+
+$('drop').onclick = () => $('file').click();
+$('drop').ondragover = (e) => { e.preventDefault(); $('drop').classList.add('over'); };
+$('drop').ondragleave = () => $('drop').classList.remove('over');
+$('drop').ondrop = (e) => {
+  e.preventDefault(); $('drop').classList.remove('over');
+  if (e.dataTransfer.files[0]) pick(e.dataTransfer.files[0]);
+};
+$('file').onchange = () => { if ($('file').files[0]) pick($('file').files[0]); };
+
+function pick(f) {
+  picked = f;
+  $('fileInfo').textContent = `${f.name}（${(f.size / 1048576).toFixed(1)}MB）`;
+  $('goBtn').disabled = false;
+}
+
+$('goBtn').onclick = async () => {
+  if (!picked) return;
+  $('goBtn').disabled = true; $('err').textContent = '';
+  $('result').style.display = 'none'; $('barWrap').style.display = '';
+  const fd = new FormData();
+  fd.append('file', picked);
+  fd.append('language', $('lang').value);
+  try {
+    const r = await fetch('/api/analyze', { method: 'POST', body: fd }).then(x => x.json());
+    if (!r.success && !r.job_id) throw new Error(r.detail || '上传失败');
+    poll(r.job_id);
+  } catch (e) {
+    $('err').textContent = e.message; $('goBtn').disabled = false;
+  }
+};
+
+function poll(jobId) {
+  clearInterval(polling);
+  const stop = (msg) => {
+    clearInterval(polling);
+    $('err').textContent = msg;
+    $('goBtn').disabled = false;
+  };
+  polling = setInterval(async () => {
+    let d;
+    try {
+      const x = await fetch('/api/jobs/' + jobId);
+      if (x.status === 404) { stop('任务不存在或已过期（服务可能重启过），请重新上传'); return; }
+      d = await x.json();
+    } catch (e) { return; /* 网络抖动忽略，下轮再试 */ }
+    const j = d.job;
+    if (!j) { stop('任务状态丢失，请重新上传'); return; }
+    $('bar').style.width = (j.progress || 0) + '%';
+    $('step').textContent = j.step + ' · ' + (j.progress || 0) + '%';
+    if (j.status === 'done') {
+      clearInterval(polling);
+      render(j.result);
+      $('goBtn').disabled = false;
+    } else if (j.status === 'error') {
+      stop('分析失败：' + (j.error || ''));
+    }
+  }, 2000);
+}
+
+function render(r) {
+  $('result').style.display = '';
+  const a = r.analysis;
+  $('anaErr').textContent = '';
+  if (a) {
+    $('topic').textContent = a.topic || '';
+    $('summary').textContent = a.summary || '';
+    if (a.transcript_truncated)
+      $('anaErr').textContent = '注：转写超过分析上限，AI 总结仅基于开头部分（本地转写全文不受影响，见下方）。';
+    $('keywords').innerHTML = (a.keywords || []).map(k => `<span class="kw">${esc(k)}</span>`).join('');
+    $('points').innerHTML = (a.key_points || []).map(p => `<li>${esc(p)}</li>`).join('');
+    const ch = a.chapters || [];
+    $('chapterWrap').style.display = ch.length ? '' : 'none';
+    $('chapters').innerHTML = ch.map(c =>
+      `<tr><td class="t">${esc(c.time)}</td><td>${esc(c.title)}</td></tr>`).join('');
+  } else {
+    $('topic').textContent = '';
+    $('summary').textContent = '';
+    $('keywords').innerHTML = ''; $('points').innerHTML = '';
+    $('chapterWrap').style.display = 'none';
+    $('anaErr').textContent = 'AI 总结未生成' + (r.analysis_error ? '：' + r.analysis_error : '') +
+      '（本地转写与截帧不受影响）';
+  }
+  $('frameCount').textContent = r.frames.length + ' 张';
+  $('frames').innerHTML = r.frames.map(f => `
+    <div class="frame">
+      <img src="/frames/${esc(r.job_id)}/${esc(f.file.split('/').pop())}" loading="lazy"
+           onclick="zoom(this.src)">
+      <div class="meta"><span class="ts">${esc(f.ts_label)}</span>
+        <div class="ocr">${esc((f.ocr || '').slice(0, 120)) || '（无画面文字）'}</div></div>
+    </div>`).join('');
+  $('sttMeta').textContent = `时长 ${r.duration_label} · 识别语言 ${r.language || '-'} · ${r.stt_device}`;
+  $('transcript').textContent = r.segments.length
+    ? r.segments.map(s => `[${s.start.toFixed(1)}s] ${s.text}`).join('\n')
+    : '（无语音或未能识别）';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function zoom(src) {
+  $('zoomImg').src = src;
+  $('zoom').style.display = 'flex';
+}
+$('zoom').onclick = () => { $('zoom').style.display = 'none'; };
+</script>
+</body>
+</html>

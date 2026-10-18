@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+python-multipart
+requests
+pillow
+numpy
+faster-whisper
+av==18.1.0
+rapidocr-onnxruntime
+opencv-python-headless
+imageio-ffmpeg
+nvidia-cublas-cu12; sys_platform == "win32"
+nvidia-cudnn-cu12; sys_platform == "win32"
+pytest
+httpx
